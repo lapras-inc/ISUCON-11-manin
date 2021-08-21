@@ -69,7 +69,7 @@ def _get_isu_list(cnxpool):
             'updated_at': row['updated_at']
         })
         # 状態情報があるか
-        found_last_condition = row['ic_id'] is None
+        found_last_condition = row['ic_id'] is not None
         last_condition = IsuCondition(**{
             'id': row['ic_id'],
             'jia_isu_uuid': row['jia_isu_uuid'],
