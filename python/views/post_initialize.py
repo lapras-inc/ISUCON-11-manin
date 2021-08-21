@@ -20,7 +20,8 @@ import mysql.connector
 from sqlalchemy.pool import QueuePool
 import jwt
 
-from python.constants import *
+from constants import *
+
 
 def _post_initialize(cnxpool):
     """
