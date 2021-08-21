@@ -21,9 +21,17 @@ from sqlalchemy.pool import QueuePool
 import jwt
 
 from constants import *
+from common import *
 
+def set_isu_to_redis(cnxpool, r):
+    query = """
+            SELECT jia_isu_uuid FROM `isu`
+        """
+    for row in select_all(cnxpool, query):
+        # redisにisuを登録
+        r.set(REDIS_ISU_PREFIX + row['jia_isu_uuid'], 1)
 
-def _post_initialize(cnxpool):
+def _post_initialize(cnxpool, r):
     """
         ベンチマーク最初に叩かれるAPI
         """
@@ -31,6 +39,7 @@ def _post_initialize(cnxpool):
         raise BadRequest("bad request body")
 
     call(APP_ROUTE + "sql/init.sh")
+    set_isu_to_redis(cnxpool, r)
 
     cnx = cnxpool.connect()
     try:
@@ -43,3 +52,6 @@ def _post_initialize(cnxpool):
         cnx.commit()
     finally:
         cnx.close()
+
+
+

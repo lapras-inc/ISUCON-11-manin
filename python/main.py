@@ -74,7 +74,7 @@ def get_jia_service_url() -> str:
 
 @app.route("/initialize", methods=["POST"])
 def post_initialize():
-    _post_initialize(cnxpool)
+    _post_initialize(cnxpool, r)
     return {"language": "python"}
 
 
@@ -173,6 +173,9 @@ def post_isu():
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
             with open(filepath, "wb") as f:
                 f.write(image)
+
+            # redisにisuを登録
+            r.set(REDIS_ISU_PREFIX + jia_isu_uuid, 1)
 
         except mysql.connector.errors.IntegrityError as e:
             if e.errno == MYSQL_ERR_NUM_DUPLICATE_ENTRY:
@@ -422,7 +425,7 @@ def get_trend():
 
 @app.route("/api/condition/<jia_isu_uuid>", methods=["POST"])
 def post_isu_condition(jia_isu_uuid):
-    return _post_isu_condition(app, cnxpool, jia_isu_uuid)
+    return _post_isu_condition(app, cnxpool, jia_isu_uuid, r)
 
 
 def get_index(**kwargs):

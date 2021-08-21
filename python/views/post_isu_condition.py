@@ -2,6 +2,7 @@ import threading
 
 from common import *
 from dc import *
+from constants import *
 
 
 BUFFER = []
@@ -32,7 +33,7 @@ class InsertThread(threading.Thread):
         cnx.commit()
 
 
-def _post_isu_condition(app, cnxpool, jia_isu_uuid):
+def _post_isu_condition(app, cnxpool, jia_isu_uuid, r):
 
     """
     JIAから翔んでくるISUからのコンディションを受け取る
@@ -61,11 +62,8 @@ def _post_isu_condition(app, cnxpool, jia_isu_uuid):
         cur = cnx.cursor(dictionary=True)
 
         # ISUの存在チェック
-        # TODO いらないかも？ 上でフィルタしたときに202返してるならココでNotFoundを返す理由があまりない
-        query = "SELECT COUNT(*) AS cnt FROM `isu` WHERE `jia_isu_uuid` = %s"
-        cur.execute(query, (jia_isu_uuid,))
-        count = cur.fetchone()["cnt"]
-        if count == 0:
+        result = r.get(REDIS_ISU_PREFIX + jia_user_id)
+        if result is None:
             raise NotFound("not found: isu")
 
         for cond in req:
