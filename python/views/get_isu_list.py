@@ -33,6 +33,8 @@ def _get_isu_list(cnxpool):
         SELECT * FROM `isu` WHERE `jia_user_id` = %s ORDER BY `id` DESC
     """
     isu_list = [Isu(**row) for row in select_all(cnxpool, query, (jia_user_id,))]
+    if not isu_list:
+        return []
 
     isu_uuid_list = [f'\'{isu.jia_isu_uuid}\'' for isu in isu_list]
     isucon_query = """
