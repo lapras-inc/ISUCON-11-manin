@@ -67,23 +67,6 @@ def level_to_warn_count_str_list(level_set: set):
     return warn_count_set
 
 
-def get_user_id_from_session(cnxpool):
-    jia_user_id = session.get("jia_user_id")
-
-    if jia_user_id is None:
-        raise Unauthorized("you are not signed in")
-    # TODO
-    # セッションがないときにクエリ飛んでる
-    # sessionにjia_user_idが入ってるならuserからそれがあるかをみてあれば認可済
-    query = "SELECT COUNT(*) FROM `user` WHERE `jia_user_id` = %s"
-    (count,) = select_row(cnxpool, query, (jia_user_id,), dictionary=False)
-
-    if count == 0:
-        raise Unauthorized("you are not signed in")
-
-    return jia_user_id
-
-
 def is_valid_condition_format(condition_str: str) -> bool:
     """ISUのコンディションの文字列がcsv形式になっているか検証"""
     keys = ["is_dirty=", "is_overweight=", "is_broken="]

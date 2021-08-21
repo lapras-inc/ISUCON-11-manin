@@ -4,6 +4,7 @@ import mysql.connector
 from sqlalchemy.pool import QueuePool
 import jwt
 import os
+import redis
 
 from common import *
 from dc import *
@@ -11,7 +12,6 @@ from views.post_initialize import _post_initialize
 from views.get_isu_list import _get_isu_list
 from views.post_isu_condition import _post_isu_condition
 from views.get_trend import _get_trend
-
 
 class CustomJSONEncoder(JSONEncoder):
     def default(self, obj):
@@ -46,7 +46,8 @@ mysql_connection_env = {
 # コネクションプール サイズ10
 cnxpool = QueuePool(lambda: mysql.connector.connect(**mysql_connection_env), pool_size=10)
 
-
+r = redis.Redis(host=getenv("REDIS_HOST", "127.0.0.1"), port=6379, db=0)
+USER_PREFIX = "user-"
 
 with open(JIA_JWT_SIGNING_KEY_PATH, "rb") as f:
     jwt_public_key = f.read()
@@ -64,10 +65,9 @@ def get_user_id_from_session():
     # TODO
     # セッションがないときにクエリ飛んでる
     # sessionにjia_user_idが入ってるならuserからそれがあるかをみてあれば認可済
-    query = "SELECT COUNT(*) FROM `user` WHERE `jia_user_id` = %s"
-    (count,) = select_row(cnxpool, query, (jia_user_id,), dictionary=False)
+    result = r.get(USER_PREFIX + jia_user_id)
 
-    if count == 0:
+    if result is None:
         raise Unauthorized("you are not signed in")
 
     return jia_user_id
@@ -115,6 +115,8 @@ def post_auth():
         query = "INSERT IGNORE INTO user (`jia_user_id`) VALUES (%s)"
         cur.execute(query, (jia_user_id,))
         cnx.commit()
+
+        r.set(USER_PREFIX + jia_user_id, 1)
     finally:
         cnx.close()
 
