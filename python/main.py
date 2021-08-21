@@ -3,6 +3,7 @@ from flask.json import JSONEncoder
 import mysql.connector
 from sqlalchemy.pool import QueuePool
 import jwt
+import os
 
 from common import *
 from dc import *
@@ -176,6 +177,12 @@ def post_isu():
                 VALUES (%s, %s, %s, %s)
                 """
             cur.execute(query, (jia_isu_uuid, isu_name, image, jia_user_id))
+
+            filepath = APP_ROUTE + f"api/isu/{jia_isu_uuid}/icon"
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, "wb") as f:
+                f.write(image)
+
         except mysql.connector.errors.IntegrityError as e:
             if e.errno == MYSQL_ERR_NUM_DUPLICATE_ENTRY:
                 abort(409, "duplicated: isu")
