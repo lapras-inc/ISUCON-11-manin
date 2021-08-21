@@ -55,54 +55,30 @@ def _post_isu_condition(app, cnxpool, jia_isu_uuid, r):
     except:
         raise BadRequest("bad request body")
 
-    cnx = cnxpool.connect()
-    try:
-        # トランザクション
-        cnx.start_transaction()
-        cur = cnx.cursor(dictionary=True)
+    # ISUの存在チェック
+    result = r.get(REDIS_ISU_PREFIX + jia_isu_uuid)
+    if result is None:
+        raise NotFound("not found: isu")
 
-        # ISUの存在チェック
-        result = r.get(REDIS_ISU_PREFIX + jia_isu_uuid)
-        if result is None:
-            raise NotFound("not found: isu")
+    for cond in req:
+        # no sql
+        if not is_valid_condition_format(cond.condition):
+            raise BadRequest("bad request body")
 
-        for cond in req:
-            # no sql
-            if not is_valid_condition_format(cond.condition):
-                raise BadRequest("bad request body")
-
-            BUFFER.append(
-                (
-                    jia_isu_uuid,
-                    datetime.fromtimestamp(cond.timestamp, tz=TZ),
-                    cond.is_sitting,
-                    cond.condition,
-                    cond.warn_count,
-                    cond.message,
-                )
+        BUFFER.append(
+            (
+                jia_isu_uuid,
+                datetime.fromtimestamp(cond.timestamp, tz=TZ),
+                cond.is_sitting,
+                cond.condition,
+                cond.warn_count,
+                cond.message,
             )
+        )
 
-            # cur.execute(
-            #     query,
-            #     (
-            #         jia_isu_uuid,
-            #         datetime.fromtimestamp(cond.timestamp, tz=TZ),
-            #         cond.is_sitting,
-            #         cond.condition,
-            #         cond.warn_count,
-            #         cond.message,
-            #     ),
-            # )
-
-        if len(BUFFER) > 100:
-            thread = InsertThread(BUFFER, cnxpool)
-            thread.start()
-            BUFFER = []
-        cnx.commit()
-    except:
-        cnx.rollback()
-        raise
-    finally:
-        cnx.close()
+    if len(BUFFER) > 100:
+        thread = InsertThread(BUFFER, cnxpool)
+        thread.start()
+        BUFFER = []
 
     return "", 202
