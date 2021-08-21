@@ -19,6 +19,8 @@ MYSQL_ERR_NUM_DUPLICATE_ENTRY = 1062
 
 REDIS_USER_PREFIX = "user-"
 
+REDIS_ISU_PREFIX = "isu-"
+
 class CONDITION_LEVEL(str, Enum):
     INFO = "info"
     WARNING = "warning"
