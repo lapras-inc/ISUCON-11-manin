@@ -25,6 +25,9 @@ from constants import *
 from dc import *
 
 
+
+CACHE = None
+
 def _get_trend(cnxpool):
     """ISUの性格毎の最新のコンディション情報"""
 
@@ -41,6 +44,9 @@ def _get_trend(cnxpool):
 
 
     """
+    if CACHE:
+        return CACHE
+
     # TODO 採点基準にあるか微妙なので切り捨てることもあり得るかもしれない
     query = "SELECT `character` FROM `isu` GROUP BY `character`"
     character_list = [row["character"] for row in select_all(cnxpool, query)]
@@ -84,4 +90,5 @@ def _get_trend(cnxpool):
             )
         )
 
-    return jsonify(res)
+    CACHE = jsonify(res)
+    return CACHE
