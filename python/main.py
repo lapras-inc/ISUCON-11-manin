@@ -30,7 +30,9 @@ app.send_file_max_age_default = timedelta(0)
 app.config["JSON_AS_ASCII"] = False
 
 
-
+DEFAULT_ICON_FILE_BINARY = None
+with open(DEFAULT_ICON_FILE_PATH, "rb") as f:
+    DEFAULT_ICON_FILE_BINARY = f.read()
 
 
 @app.errorhandler(HTTPException)
@@ -147,9 +149,7 @@ def post_isu():
         use_default_image = True
 
     if use_default_image:
-        # TODO 毎回Openするなら開いとけ。
-        with open(DEFAULT_ICON_FILE_PATH, "rb") as f:
-            image = f.read()
+        image = DEFAULT_ICON_FILE_BINARY
     else:
         image = image.read()
 
@@ -204,13 +204,12 @@ def post_isu():
         query = "UPDATE `isu` SET `character` = %s WHERE  `jia_isu_uuid` = %s"
         cur.execute(query, (isu_from_jia["character"], jia_isu_uuid))
         # ISUの情報を取得して戻す
-        # TODO where句が多いかも
+
+        cnx.commit()
         # トランザクションに入れる意味もなさそう
         query = "SELECT * FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
         cur.execute(query, (jia_user_id, jia_isu_uuid))
         isu = Isu(**cur.fetchone())
-
-        cnx.commit()
     except:
         cnx.rollback()
         raise
