@@ -7,6 +7,8 @@ ALTER TABLE isu ADD INDEX index_isu_on_character(`character`);
 -- isu_condition
 ALTER TABLE isu_condition ADD INDEX index_isu_condition_on_jia_isu_uuid(jia_isu_uuid);
 ALTER TABLE isu_condition ADD INDEX index_isu_condition_on_warn_count(warn_count);
+ALTER TABLE isu_condition ADD INDEX index_isu_condition_on_jia_isu_uuid_timestamp(jia_isu_uuid, timestamp);
+
 
 
 -- user
