@@ -255,7 +255,10 @@ def get_isu_icon(jia_isu_uuid):
     if res is None:
         raise NotFound("not found: isu")
 
-    return make_response(res["image"], 200, {"Content-Type": "image/jpeg"})
+    with open(APP_ROUTE + f'api/isu/{jia_isu_uuid}/icon', "rb") as f:
+        image = f.read()
+
+    return make_response(image, 200, {"Content-Type": "image/jpeg"})
 
 
 @app.route("/api/isu/<jia_isu_uuid>/graph", methods=["GET"])
