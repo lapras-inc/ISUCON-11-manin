@@ -27,6 +27,20 @@ def select_row(cnxpool, query, *args, **kwargs):
     rows = select_all(cnxpool, limited_query, *args, **kwargs)
     return rows[0] if len(rows) > 0 else None
 
+def get_user_id_from_session(r):
+    jia_user_id = session.get("jia_user_id")
+
+    if jia_user_id is None:
+        raise Unauthorized("you are not signed in")
+    # TODO
+    # セッションがないときにクエリ飛んでる
+    # sessionにjia_user_idが入ってるならuserからそれがあるかをみてあれば認可済
+    result = r.get(REDIS_USER_PREFIX + jia_user_id)
+
+    if result is None:
+        raise Unauthorized("you are not signed in")
+
+    return jia_user_id
 
 def calculate_condition_level(condition: str) -> CONDITION_LEVEL:
     """ISUのコンディションの文字列からコンディションレベルを計算"""
@@ -66,23 +80,6 @@ def level_to_warn_count_str_list(level_set: set):
     if CONDITION_LEVEL.CRITICAL in level_set:
         warn_count_set.append('3')
     return warn_count_set
-
-
-def get_user_id_from_session(cnxpool):
-    jia_user_id = session.get("jia_user_id")
-
-    if jia_user_id is None:
-        raise Unauthorized("you are not signed in")
-    # TODO
-    # セッションがないときにクエリ飛んでる
-    # sessionにjia_user_idが入ってるならuserからそれがあるかをみてあれば認可済
-    query = "SELECT COUNT(*) FROM `user` WHERE `jia_user_id` = %s"
-    (count,) = select_row(cnxpool, query, (jia_user_id,), dictionary=False)
-
-    if count == 0:
-        raise Unauthorized("you are not signed in")
-
-    return jia_user_id
 
 
 def is_valid_condition_format(condition_str: str) -> bool:

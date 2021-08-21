@@ -4,6 +4,7 @@ import mysql.connector
 from sqlalchemy.pool import QueuePool
 import jwt
 import os
+import redis
 
 
 import redis
@@ -14,7 +15,6 @@ from views.post_initialize import _post_initialize
 from views.get_isu_list import _get_isu_list
 from views.post_isu_condition import _post_isu_condition
 from views.get_trend import _get_trend
-
 
 class CustomJSONEncoder(JSONEncoder):
     def default(self, obj):
@@ -52,7 +52,7 @@ mysql_connection_env = {
 # コネクションプール サイズ10
 cnxpool = QueuePool(lambda: mysql.connector.connect(**mysql_connection_env), pool_size=10)
 
-
+r = redis.Redis(host=getenv("REDIS_HOST", "127.0.0.1"), port=6379, db=0)
 
 with open(JIA_JWT_SIGNING_KEY_PATH, "rb") as f:
     jwt_public_key = f.read()
@@ -60,23 +60,6 @@ with open(JIA_JWT_SIGNING_KEY_PATH, "rb") as f:
 post_isu_condition_target_base_url = getenv("POST_ISUCONDITION_TARGET_BASE_URL")
 if post_isu_condition_target_base_url is None:
     raise Exception("missing: POST_ISUCONDITION_TARGET_BASE_URL")
-
-
-def get_user_id_from_session():
-    jia_user_id = session.get("jia_user_id")
-
-    if jia_user_id is None:
-        raise Unauthorized("you are not signed in")
-    # TODO
-    # セッションがないときにクエリ飛んでる
-    # sessionにjia_user_idが入ってるならuserからそれがあるかをみてあれば認可済
-    query = "SELECT COUNT(*) FROM `user` WHERE `jia_user_id` = %s"
-    (count,) = select_row(cnxpool, query, (jia_user_id,), dictionary=False)
-
-    if count == 0:
-        raise Unauthorized("you are not signed in")
-
-    return jia_user_id
 
 
 def get_jia_service_url() -> str:
@@ -121,6 +104,8 @@ def post_auth():
         query = "INSERT IGNORE INTO user (`jia_user_id`) VALUES (%s)"
         cur.execute(query, (jia_user_id,))
         cnx.commit()
+
+        r.set(REDIS_USER_PREFIX + jia_user_id, 1)
     finally:
         cnx.close()
 
@@ -132,7 +117,7 @@ def post_auth():
 @app.route("/api/signout", methods=["POST"])
 def post_signout():
     """サインアウト"""
-    get_user_id_from_session()
+    get_user_id_from_session(r)
     session.clear()
     return ""
 
@@ -140,19 +125,19 @@ def post_signout():
 @app.route("/api/user/me", methods=["GET"])
 def get_me():
     """サインインしている自分自身の情報を取得"""
-    jia_user_id = get_user_id_from_session()
+    jia_user_id = get_user_id_from_session(r)
     return {"jia_user_id": jia_user_id}
 
 
 @app.route("/api/isu", methods=["GET"])
 def get_isu_list():
-    return _get_isu_list(cnxpool)
+    return _get_isu_list(cnxpool, r)
 
 
 @app.route("/api/isu", methods=["POST"])
 def post_isu():
     """ISUを登録"""
-    jia_user_id = get_user_id_from_session()
+    jia_user_id = get_user_id_from_session(r)
 
     use_default_image = False
 
@@ -241,7 +226,7 @@ def get_isu_id(jia_isu_uuid):
 
     # TODO
     # uuidが一意だったらuser_idはクエリにはいらないのでこれ自体省けるが無認可でAPIを叩くテストが混ざってると死ぬ
-    jia_user_id = get_user_id_from_session()
+    jia_user_id = get_user_id_from_session(r)
     query = "SELECT * FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
     res = select_row(cnxpool, query, (jia_user_id, jia_isu_uuid))
     if res is None:
@@ -254,7 +239,7 @@ def get_isu_id(jia_isu_uuid):
 def get_isu_icon(jia_isu_uuid):
     """ISUのアイコンを取得"""
     # TODO nginx配信に切り替えたい
-    jia_user_id = get_user_id_from_session()
+    jia_user_id = get_user_id_from_session(r)
 
     query = "SELECT 1 FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
     res = select_row(cnxpool, query, (jia_user_id, jia_isu_uuid))
@@ -270,7 +255,7 @@ def get_isu_icon(jia_isu_uuid):
 @app.route("/api/isu/<jia_isu_uuid>/graph", methods=["GET"])
 def get_isu_graph(jia_isu_uuid):
     """ISUのコンディショングラフ描画のための情報を取得"""
-    jia_user_id = get_user_id_from_session()
+    jia_user_id = get_user_id_from_session(r)
 
     dt = request.args.get("datetime")
     if dt is None:
@@ -387,7 +372,7 @@ def generate_isu_graph_response(jia_isu_uuid: str, graph_date: datetime) -> list
 @app.route("/api/condition/<jia_isu_uuid>", methods=["GET"])
 def get_isu_confitions(jia_isu_uuid):
     """ISUのコンディションを取得"""
-    jia_user_id = get_user_id_from_session()
+    jia_user_id = get_user_id_from_session(r)
 
     try:
         end_time = datetime.fromtimestamp(int(request.args.get("end_time")), tz=TZ)
