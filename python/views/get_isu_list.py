@@ -40,7 +40,6 @@ def _get_isu_list(cnxpool):
                `isu`.jia_isu_uuid,
                `isu`.name,
                `isu`.`character`,
-               `isu`.`image`
                `isu`.`created_at`,
                `isu`.`updated_at`,
                `isu`.`image`,
