@@ -176,9 +176,11 @@ mysql_connection_env = {
     "time_zone": "+09:00",
 }
 
+# コネクションプール サイズ10
 cnxpool = QueuePool(lambda: mysql.connector.connect(**mysql_connection_env), pool_size=10)
 
-
+# 汎用クエリ
+# fetch allは少し気になる
 def select_all(query, *args, dictionary=True):
     cnx = cnxpool.connect()
     try:
@@ -188,7 +190,7 @@ def select_all(query, *args, dictionary=True):
     finally:
         cnx.close()
 
-
+# 1行だけ期待しているが全件とってる
 def select_row(*args, **kwargs):
     rows = select_all(*args, **kwargs)
     return rows[0] if len(rows) > 0 else None
@@ -207,7 +209,9 @@ def get_user_id_from_session():
 
     if jia_user_id is None:
         raise Unauthorized("you are not signed in")
-
+    # TODO
+    # セッションがないときにクエリ飛んでる
+    # sessionにjia_user_idが入ってるならuserからそれがあるかをみてあれば認可済
     query = "SELECT COUNT(*) FROM `user` WHERE `jia_user_id` = %s"
     (count,) = select_row(query, (jia_user_id,), dictionary=False)
 
@@ -218,6 +222,11 @@ def get_user_id_from_session():
 
 
 def get_jia_service_url() -> str:
+    """
+    ????
+    JIAのサーバ登録なので多分キャッシュにできるかも
+    """
+    # TODO ほぼ普遍なので一回取ってキャッシュで良さそう
     query = "SELECT * FROM `isu_association_config` WHERE `name` = %s"
     config = select_row(query, ("jia_service_url",))
     return config["url"] if config is not None else DEFAULT_JIA_SERVICE_URL
@@ -225,7 +234,9 @@ def get_jia_service_url() -> str:
 
 @app.route("/initialize", methods=["POST"])
 def post_initialize():
-    """サービスを初期化"""
+    """
+    ベンチマーク最初に叩かれるAPI
+    """
     if "jia_service_url" not in request.json:
         raise BadRequest("bad request body")
 
@@ -234,7 +245,10 @@ def post_initialize():
     cnx = cnxpool.connect()
     try:
         cur = cnx.cursor()
-        query = "INSERT INTO `isu_association_config` (`name`, `url`) VALUES (%s, %s) ON DUPLICATE KEY UPDATE `url` = VALUES(`url`)"
+        query = """
+            INSERT INTO
+            `isu_association_config` (`name`, `url`) VALUES (%s, %s) ON DUPLICATE KEY UPDATE `url` = VALUES(`url`)
+        """
         cur.execute(query, ("jia_service_url", request.json["jia_service_url"]))
         cnx.commit()
     finally:
@@ -264,6 +278,8 @@ def post_auth():
     cnx = cnxpool.connect()
     try:
         cur = cnx.cursor()
+        # インサート時にキーが重複してたらそれは無視するINSERT
+        # ここにレコードがあるIDは認可済としている
         query = "INSERT IGNORE INTO user (`jia_user_id`) VALUES (%s)"
         cur.execute(query, (jia_user_id,))
         cnx.commit()
@@ -295,12 +311,16 @@ def get_isu_list():
     """ISUの一覧を取得"""
     jia_user_id = get_user_id_from_session()
 
-    query = "SELECT * FROM `isu` WHERE `jia_user_id` = %s ORDER BY `id` DESC"
+    query = """
+        SELECT * FROM `isu` WHERE `jia_user_id` = %s ORDER BY `id` DESC
+    """
     isu_list = [Isu(**row) for row in select_all(query, (jia_user_id,))]
 
     response_list = []
     for isu in isu_list:
+        # 状態情報があるか
         found_last_condition = True
+        # TODO N 1
         query = "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = %s ORDER BY `timestamp` DESC LIMIT 1"
         row = select_row(query, (isu.jia_isu_uuid,))
         if row is None:
@@ -347,12 +367,14 @@ def post_isu():
         use_default_image = True
 
     if use_default_image:
+        # TODO 毎回Openするなら開いとけ。
         with open(DEFAULT_ICON_FILE_PATH, "rb") as f:
             image = f.read()
     else:
         image = image.read()
 
     cnx = cnxpool.connect()
+    # トランザクションここから
     try:
         cnx.start_transaction()
         cur = cnx.cursor(dictionary=True)
@@ -388,9 +410,12 @@ def post_isu():
             app.logger.error(f"failed to request to JIAService: {e.reason}")
             raise InternalServerError
 
+        # ISUの正確を登録する
         query = "UPDATE `isu` SET `character` = %s WHERE  `jia_isu_uuid` = %s"
         cur.execute(query, (isu_from_jia["character"], jia_isu_uuid))
-
+        # ISUの情報を取得して戻す
+        # TODO where句が多いかも
+        # トランザクションに入れる意味もなさそう
         query = "SELECT * FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
         cur.execute(query, (jia_user_id, jia_isu_uuid))
         isu = Isu(**cur.fetchone())
@@ -402,14 +427,18 @@ def post_isu():
     finally:
         cnx.close()
 
+        # ↑トランザクションここまで
+
     return jsonify(isu), 201
 
 
 @app.route("/api/isu/<jia_isu_uuid>", methods=["GET"])
 def get_isu_id(jia_isu_uuid):
     """ISUの情報を取得"""
-    jia_user_id = get_user_id_from_session()
 
+    # TODO
+    # uuidが一意だったらuser_idはクエリにはいらないのでこれ自体省けるが無認可でAPIを叩くテストが混ざってると死ぬ
+    jia_user_id = get_user_id_from_session()
     query = "SELECT * FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
     res = select_row(query, (jia_user_id, jia_isu_uuid))
     if res is None:
@@ -421,6 +450,7 @@ def get_isu_id(jia_isu_uuid):
 @app.route("/api/isu/<jia_isu_uuid>/icon", methods=["GET"])
 def get_isu_icon(jia_isu_uuid):
     """ISUのアイコンを取得"""
+    # TODO nginx配信に切り替えたい
     jia_user_id = get_user_id_from_session()
 
     query = "SELECT `image` FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
@@ -443,22 +473,21 @@ def get_isu_graph(jia_isu_uuid):
         dt = datetime.fromtimestamp(int(dt), tz=TZ)
     except:
         raise BadRequest("bad format: datetime")
-    dt = truncate_datetime(dt, timedelta(hours=1))
+    dt = truncate_datetime(dt)
 
+    # ISUの存在確認をしている
     query = "SELECT COUNT(*) FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
     (count,) = select_row(query, (jia_user_id, jia_isu_uuid), dictionary=False)
     if count == 0:
         raise NotFound("not found: isu")
-
+    # ISUのグラフ情報を取得している
     res = generate_isu_graph_response(jia_isu_uuid, dt)
     return jsonify(res)
 
 
-def truncate_datetime(dt: datetime, duration: timedelta) -> datetime:
+def truncate_datetime(dt: datetime) -> datetime:
     """datetime 値の指定した粒度で切り捨てる"""
-    if duration == timedelta(hours=1):
-        return datetime(dt.year, dt.month, dt.day, dt.hour, tzinfo=dt.tzinfo)
-    raise Exception("unsupported duration")
+    return datetime(dt.year, dt.month, dt.day, dt.hour, tzinfo=dt.tzinfo)
 
 
 def generate_isu_graph_response(jia_isu_uuid: str, graph_date: datetime) -> list[GraphResponse]:
@@ -472,7 +501,11 @@ def generate_isu_graph_response(jia_isu_uuid: str, graph_date: datetime) -> list
     rows = select_all(query, (jia_isu_uuid,))
     for row in rows:
         condition = IsuCondition(**row)
-        truncated_condition_time = truncate_datetime(condition.timestamp, timedelta(hours=1))
+        # condition情報の時刻を時間単位に切り捨てる
+        truncated_condition_time = truncate_datetime(condition.timestamp)
+        # start_time_in_this_hour は初めてその時刻でのポイントされたtimestampが入っている
+        # その時刻で最初のときだけグラフポイントGraphDataPointWithInfo を作る
+        # ここは時刻ごとのBufferで時刻の切り替わりでリセットしてる
         if truncated_condition_time != start_time_in_this_hour:
             if len(conditions_in_this_hour) > 0:
                 data_points.append(
@@ -548,7 +581,7 @@ def calculate_graph_data_point(isu_conditions: list[IsuCondition]) -> GraphDataP
     raw_score = 0
     for condition in isu_conditions:
         bad_conditions_count = 0
-
+        # no sql
         if not is_valid_condition_format(condition.condition):
             raise Exception("invalid condition format")
 
@@ -595,6 +628,7 @@ def get_isu_confitions(jia_isu_uuid):
     except:
         raise BadRequest("bad format: end_time")
 
+    # 検索条件
     condition_level_csv = request.args.get("condition_level")
     if condition_level_csv is None:
         raise BadRequest("missing: condition_level")
@@ -608,12 +642,15 @@ def get_isu_confitions(jia_isu_uuid):
         except:
             raise BadRequest("bad format: start_time")
 
+    # ISU名取得
     query = "SELECT name FROM `isu` WHERE `jia_isu_uuid` = %s AND `jia_user_id` = %s"
     row = select_row(query, (jia_isu_uuid, jia_user_id))
     if row is None:
         raise NotFound("not found: isu")
     isu_name = row["name"]
 
+    # ISUの状態をdbから取得
+    # SQLあり
     condition_response = get_isu_conditions_from_db(
         jia_isu_uuid,
         end_time,
@@ -655,10 +692,12 @@ def get_isu_conditions_from_db(
     condition_response = []
     for c in conditions:
         try:
+            # 状態とレベルの変換
             c_level = calculate_condition_level(c.condition)
         except:
             continue
-
+        # 検索条件に外うとうするかの比較
+        # TODO ciriticalとかはエラー数できまってるのでSQLで処理できそう
         if c_level.value in condition_level:
             condition_response.append(
                 GetIsuConditionResponse(
@@ -671,7 +710,7 @@ def get_isu_conditions_from_db(
                     message=c.message,
                 )
             )
-
+    #TODO 上のTODO を処理できるとSQLのLimitで処理できるようになる
     if len(condition_response) > limit:
         condition_response = condition_response[:limit]
 
@@ -681,6 +720,21 @@ def get_isu_conditions_from_db(
 @app.route("/api/trend", methods=["GET"])
 def get_trend():
     """ISUの性格毎の最新のコンディション情報"""
+
+    """
+    先にDBにあるキャラクター一覧を取って
+    キャラクターごとに
+    最新のコンディションを取得し、そのコンディションごとの椅子の数を求めている
+    
+    キャラクター: {
+        critical: [{isu_id, last_condition_timestamp}],
+        info: [],
+        warn: [],
+    }
+    
+    
+    """
+    # TODO 採点基準にあるか微妙なので切り捨てることもあり得るかもしれない
     query = "SELECT `character` FROM `isu` GROUP BY `character`"
     character_list = [row["character"] for row in select_all(query)]
 
@@ -728,8 +782,16 @@ def get_trend():
 
 @app.route("/api/condition/<jia_isu_uuid>", methods=["POST"])
 def post_isu_condition(jia_isu_uuid):
-    """ISUからのコンディションを受け取る"""
+    """
+    JIAから翔んでくるISUからのコンディションを受け取る
+
+    処理自体は思いように感じないのでとても多いのかもしれない。
+    キャッシュなどでいい感じにバッファしてBulkでInsertさせたい
+
+    加点要素
+    """
     # TODO: 一定割合リクエストを落としてしのぐようにしたが、本来は全量さばけるようにすべき
+    # 1/10になってる！
     drop_probability = 0.9
     if random() <= drop_probability:
         app.logger.warning("drop post isu condition request")
@@ -741,9 +803,11 @@ def post_isu_condition(jia_isu_uuid):
 
     cnx = cnxpool.connect()
     try:
+        # トランザクション
         cnx.start_transaction()
         cur = cnx.cursor(dictionary=True)
 
+        # ISUの存在チェック
         query = "SELECT COUNT(*) AS cnt FROM `isu` WHERE `jia_isu_uuid` = %s"
         cur.execute(query, (jia_isu_uuid,))
         count = cur.fetchone()["cnt"]
@@ -751,6 +815,7 @@ def post_isu_condition(jia_isu_uuid):
             raise NotFound("not found: isu")
 
         for cond in req:
+            # no sql
             if not is_valid_condition_format(cond.condition):
                 raise BadRequest("bad request body")
 
