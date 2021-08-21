@@ -288,9 +288,9 @@ def generate_isu_graph_response(jia_isu_uuid: str, graph_date: datetime) -> list
     timestamps_in_this_hour = []
     start_time_in_this_hour = None
     start_time_of_this_day = graph_date
-    end_time_of_this_day = graph_date + 86400  # 1日分
+    end_time_of_this_day = graph_date + timedelta(hours=24)
 
-    query = "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = %s and `timestamp` >= %s and timestamp =< %s ORDER BY `timestamp` ASC"
+    query = "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = %s and `timestamp` >= %s and timestamp <= %s ORDER BY `timestamp` ASC"
     rows = select_all(cnxpool, query, (jia_isu_uuid, start_time_of_this_day, end_time_of_this_day))
     for row in rows:
         condition = IsuCondition(**row)
