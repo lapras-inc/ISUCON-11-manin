@@ -1,34 +1,16 @@
-from os import getenv
-from subprocess import call
-import json
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-import urllib.request
-from random import random
-from enum import Enum
-from flask import Flask, request, session, send_file, jsonify, abort, make_response
-from flask.json import JSONEncoder
-from werkzeug.exceptions import (
-    Forbidden,
-    HTTPException,
-    BadRequest,
-    Unauthorized,
-    NotFound,
-    InternalServerError,
-)
-import mysql.connector
-from sqlalchemy.pool import QueuePool
-import jwt
+import pickle
+from datetime import datetime
 
 from common import *
 from constants import *
 from dc import *
 
-
-
 CACHE = None
 
-def _get_trend(cnxpool):
+TIMEOUT = 5
+
+
+def _get_trend(cnxpool, redis_connection=None):
     """ISUの性格毎の最新のコンディション情報"""
 
     """
@@ -44,52 +26,121 @@ def _get_trend(cnxpool):
 
 
     """
-    global CACHE
-    if CACHE:
-        return CACHE
+
+    data = redis_connection.get(REDIS_TREND_PREFIX)
+    if data:
+        return pickle.loads(data)
 
     # TODO 採点基準にあるか微妙なので切り捨てることもあり得るかもしれない
-    query = "SELECT `character` FROM `isu` GROUP BY `character`"
-    character_list = [row["character"] for row in select_all(cnxpool, query)]
-
-    res = []
-
-    for character in character_list:
-        query = "SELECT * FROM `isu` WHERE `character` = %s"
-        isu_list = [Isu(**row) for row in select_all(cnxpool, query, (character,))]
-
-        character_info_isu_conditions = []
-        character_warning_isu_conditions = []
-        character_critical_isu_conditions = []
-        for isu in isu_list:
-            query = "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = %s ORDER BY timestamp DESC"
-            conditions = [IsuCondition(**row) for row in select_all(cnxpool, query, (isu.jia_isu_uuid,))]
-
-            if len(conditions) > 0:
-                isu_last_condition = conditions[0]
-                condition_level = calculate_condition_level(isu_last_condition.condition)
-
-                trend_condition = TrendCondition(isu_id=isu.id, timestamp=int(isu_last_condition.timestamp.timestamp()))
-
-                if condition_level == "info":
-                    character_info_isu_conditions.append(trend_condition)
-                elif condition_level == "warning":
-                    character_warning_isu_conditions.append(trend_condition)
-                elif condition_level == "critical":
-                    character_critical_isu_conditions.append(trend_condition)
-
-        character_info_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
-        character_warning_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
-        character_critical_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
-
-        res.append(
-            TrendResponse(
-                character=character,
-                info=character_info_isu_conditions,
-                warning=character_warning_isu_conditions,
-                critical=character_critical_isu_conditions,
+    query = """
+        with latest_condition as (
+          select
+            jia_isu_uuid,
+            timestamp,
+            warn_count
+          from
+          isu_condition
+          where
+            (jia_isu_uuid, timestamp) in (
+              select
+                jia_isu_uuid,
+                max(timestamp)
+              from
+                isu_condition
+              group BY
+                jia_isu_uuid
             )
         )
+        select
+          i.character,
+          ic.warn_count,
+          group_concat(
+              i.id
+              ORDER BY ic.timestamp desc
+          ) as isu_id_list,
+          group_concat(
+              ic.jia_isu_uuid
+              ORDER BY ic.timestamp desc
+          ) as jia_isu_uuid_list,
+          group_concat(
+              ic.timestamp
+              ORDER BY ic.timestamp desc
+          ) as timestamp_list
+        from
+            isu i
+        left outer join
+            latest_condition ic
+        on  i.jia_isu_uuid = ic.jia_isu_uuid
 
-    CACHE = jsonify(res)
-    return CACHE
+        group by
+            i.character,
+            ic.warn_count
+        order by
+            i.character,
+            ic.warn_count
+    """
+    res = []
+
+    # chara, wan_count分廻る
+    current_character = None
+    current_data = {
+        'info': [],
+        'warning': [],
+        'critical': [],
+    }
+    for row in select_all(cnxpool, query):
+
+        character = row['character']
+        warn_count = row['warn_count']
+        if warn_count is None:
+            continue
+
+        if current_character is None:
+            current_character = character
+
+        if character != current_character:
+            res.append(
+                TrendResponse(
+                    character=current_character,
+                    info=current_data['info'],
+                    warning=current_data['warning'],
+                    critical=current_data['critical'],
+                )
+            )
+
+            current_character = character
+            current_data = {
+                'info': [],
+                'warning': [],
+                'critical': [],
+            }
+
+        isu_id_list = row['isu_id_list'].split(',')
+        timestamp_list = row['timestamp_list'].split(',')
+        for is_id, timestamp_str in zip(isu_id_list, timestamp_list):
+
+            condition_level = warn_count_to_condition_level(warn_count)
+
+            trend_condition = TrendCondition(
+                isu_id=int(is_id),
+                timestamp=int(datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S').timestamp())
+            )
+
+            current_data[condition_level].append(trend_condition)
+
+        # character_info_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
+        # character_warning_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
+        # character_critical_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
+    # last buffer
+    res.append(
+        TrendResponse(
+            character=current_character,
+            info=current_data['info'],
+            warning=current_data['warning'],
+            critical=current_data['critical'],
+        )
+    )
+
+    json_res = jsonify(res)
+    redis_connection.set(REDIS_TREND_PREFIX, pickle.dumps(json_res), ex=TIMEOUT)
+    return json_res
