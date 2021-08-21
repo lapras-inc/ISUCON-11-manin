@@ -4,8 +4,6 @@ import mysql.connector
 from sqlalchemy.pool import QueuePool
 import jwt
 import os
-import redis
-
 
 import redis
 
@@ -417,7 +415,7 @@ def get_isu_confitions(jia_isu_uuid):
 
 @app.route("/api/trend", methods=["GET"])
 def get_trend():
-    return _get_trend(cnxpool)
+    return _get_trend(cnxpool ,r)
 
 
 @app.route("/api/condition/<jia_isu_uuid>", methods=["POST"])

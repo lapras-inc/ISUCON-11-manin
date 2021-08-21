@@ -18,6 +18,7 @@ DEFAULT_JIA_SERVICE_URL = "http://localhost:5000"
 MYSQL_ERR_NUM_DUPLICATE_ENTRY = 1062
 
 REDIS_USER_PREFIX = "user-"
+REDIS_TREND_PREFIX = 'trend-'
 
 class CONDITION_LEVEL(str, Enum):
     INFO = "info"
