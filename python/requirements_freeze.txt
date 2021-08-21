@@ -14,8 +14,6 @@ protobuf==3.17.3
 pycparser==2.20
 PyJWT==2.1.0
 pyparsing==2.4.7
-redispy==3.0.0
-hiredis==2.0.0
 six==1.16.0
 SQLAlchemy==1.4.22
 tenacity==8.0.1

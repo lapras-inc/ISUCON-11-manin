@@ -4,5 +4,3 @@ SQLAlchemy==1.4.22
 PyJWT[crypto]==2.1.0
 uWSGI==2.0.19.1
 ddtrace==0.51.2
-hiredis==2.0.0
-redispy==3.0.0

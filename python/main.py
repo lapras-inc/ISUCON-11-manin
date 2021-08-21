@@ -5,9 +5,6 @@ from sqlalchemy.pool import QueuePool
 import jwt
 import os
 
-
-import redis
-
 from common import *
 from dc import *
 from views.post_initialize import _post_initialize
@@ -30,11 +27,6 @@ app.secret_key = getenv("SESSION_KEY", "isucondition")
 app.json_encoder = CustomJSONEncoder
 app.send_file_max_age_default = timedelta(0)
 app.config["JSON_AS_ASCII"] = False
-
-
-pool = redis.ConnectionPool(host='localhost', port=6379, db=0)
-r = redis.StrictRedis(connection_pool=pool)
-
 
 
 @app.errorhandler(HTTPException)
@@ -129,7 +121,7 @@ def post_auth():
     session["jia_user_id"] = jia_user_id
 
     return ""
-r.flushdb()
+
 
 @app.route("/api/signout", methods=["POST"])
 def post_signout():
