@@ -25,11 +25,12 @@ from common import *
 
 def set_isu_to_redis(cnxpool, r):
     query = """
-            SELECT jia_isu_uuid FROM `isu`
+            SELECT jia_isu_uuid, jia_user_id FROM `isu`
         """
     for row in select_all(cnxpool, query, ()):
         # redisにisuを登録
         r.set(REDIS_ISU_PREFIX + row['jia_isu_uuid'], 1)
+        r.set(f"{REDIS_ICON_PREFIX}{row['jia_user_id']}{row['jia_isu_uuid']}", 1)
 
 def _post_initialize(cnxpool, r):
     """
