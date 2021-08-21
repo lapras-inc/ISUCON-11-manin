@@ -10,7 +10,6 @@ class Isu:
     id: int
     jia_isu_uuid: str
     name: str
-    image: bytes
     character: str
     jia_user_id: str
     created_at: datetime

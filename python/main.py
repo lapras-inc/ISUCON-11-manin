@@ -173,10 +173,10 @@ def post_isu():
         try:
             query = """
                 INSERT
-                INTO `isu` (`jia_isu_uuid`, `name`, `image`, `jia_user_id`)
-                VALUES (%s, %s, %s, %s)
+                INTO `isu` (`jia_isu_uuid`, `name`, `jia_user_id`)
+                VALUES (%s, %s, %s)
                 """
-            cur.execute(query, (jia_isu_uuid, isu_name, image, jia_user_id))
+            cur.execute(query, (jia_isu_uuid, isu_name, jia_user_id))
 
             filepath = APP_ROUTE + f"api/isu/{jia_isu_uuid}/icon"
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -250,7 +250,7 @@ def get_isu_icon(jia_isu_uuid):
     # TODO nginx配信に切り替えたい
     jia_user_id = get_user_id_from_session()
 
-    query = "SELECT `image` FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
+    query = "SELECT 1 FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
     res = select_row(cnxpool, query, (jia_user_id, jia_isu_uuid))
     if res is None:
         raise NotFound("not found: isu")
