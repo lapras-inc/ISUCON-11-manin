@@ -399,6 +399,7 @@ def get_isu_confitions(jia_isu_uuid):
     # ISUの状態をdbから取得
     # SQLあり
     condition_response = get_isu_conditions_from_db(
+        cnxpool,
         jia_isu_uuid,
         end_time,
         condition_level,

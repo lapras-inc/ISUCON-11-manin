@@ -89,6 +89,7 @@ def is_valid_condition_format(condition_str: str) -> bool:
 
 
 def get_isu_conditions_from_db(
+    cnxpool,
     jia_isu_uuid: str,
     end_time: datetime,
     condition_level: set,
