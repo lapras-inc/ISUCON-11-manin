@@ -24,9 +24,10 @@ import jwt
 
 TZ = ZoneInfo("Asia/Tokyo")
 CONDITION_LIMIT = 20
-FRONTEND_CONTENTS_PATH = "../public"
-JIA_JWT_SIGNING_KEY_PATH = "../ec256-public.pem"
-DEFAULT_ICON_FILE_PATH = "../NoImage.jpg"
+APP_ROUTE = getenv("APP_ROUTE", "../")
+FRONTEND_CONTENTS_PATH = APP_ROUTE + "public"
+JIA_JWT_SIGNING_KEY_PATH = APP_ROUTE + "ec256-public.pem"
+DEFAULT_ICON_FILE_PATH = APP_ROUTE + "NoImage.jpg"
 DEFAULT_JIA_SERVICE_URL = "http://localhost:5000"
 MYSQL_ERR_NUM_DUPLICATE_ENTRY = 1062
 
@@ -229,7 +230,7 @@ def post_initialize():
     if "jia_service_url" not in request.json:
         raise BadRequest("bad request body")
 
-    call("../sql/init.sh")
+    call(APP_ROUTE + "sql/init.sh")
 
     cnx = cnxpool.connect()
     try:
