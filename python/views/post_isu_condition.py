@@ -62,7 +62,7 @@ def _post_isu_condition(app, cnxpool, jia_isu_uuid, r):
         cur = cnx.cursor(dictionary=True)
 
         # ISUの存在チェック
-        result = r.get(REDIS_ISU_PREFIX + jia_user_id)
+        result = r.get(REDIS_ISU_PREFIX + jia_isu_uuid)
         if result is None:
             raise NotFound("not found: isu")
 
