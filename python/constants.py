@@ -17,6 +17,7 @@ DEFAULT_ICON_FILE_PATH = APP_ROUTE + "NoImage.jpg"
 DEFAULT_JIA_SERVICE_URL = "http://localhost:5000"
 MYSQL_ERR_NUM_DUPLICATE_ENTRY = 1062
 
+REDIS_USER_PREFIX = "user-"
 
 class CONDITION_LEVEL(str, Enum):
     INFO = "info"
