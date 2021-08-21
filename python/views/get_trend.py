@@ -44,6 +44,7 @@ def _get_trend(cnxpool):
 
 
     """
+    global CACHE
     if CACHE:
         return CACHE
 
