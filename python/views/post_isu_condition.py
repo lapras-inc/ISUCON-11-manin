@@ -3,6 +3,8 @@ from dc import *
 
 
 BUFFER = []
+BUFFER_LIMIT = 100
+DROP_PROBABILITY = 0.5
 
 
 def _post_isu_condition(app, cnxpool, jia_isu_uuid):
@@ -18,7 +20,7 @@ def _post_isu_condition(app, cnxpool, jia_isu_uuid):
     global BUFFER
     # TODO: 一定割合リクエストを落としてしのぐようにしたが、本来は全量さばけるようにすべき
     # 1/10になってる！
-    drop_probability = 0.9
+    drop_probability = DROP_PROBABILITY
     if random() <= drop_probability:
         app.logger.warning("drop post isu condition request")
         return "", 202
