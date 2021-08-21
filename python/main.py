@@ -174,6 +174,7 @@ def post_isu():
 
             # redisにisuを登録
             r.set(REDIS_ISU_PREFIX + jia_isu_uuid, 1)
+            r.set(f'{REDIS_ICON_PREFIX}{jia_user_id}{jia_isu_uuid}', 1)
 
         except mysql.connector.errors.IntegrityError as e:
             if e.errno == MYSQL_ERR_NUM_DUPLICATE_ENTRY:
@@ -241,9 +242,8 @@ def get_isu_icon(jia_isu_uuid):
     """ISUのアイコンを取得"""
     # TODO nginx配信に切り替えたい
     jia_user_id = get_user_id_from_session(r)
+    res = r.get(f'{REDIS_ICON_PREFIX}{jia_user_id}{jia_isu_uuid}')
 
-    query = "SELECT 1 FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
-    res = select_row(cnxpool, query, (jia_user_id, jia_isu_uuid))
     if res is None:
         raise NotFound("not found: isu")
 
@@ -268,9 +268,8 @@ def get_isu_graph(jia_isu_uuid):
     dt = truncate_datetime(dt)
 
     # ISUの存在確認をしている
-    query = "SELECT COUNT(*) FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
-    (count,) = select_row(cnxpool, query, (jia_user_id, jia_isu_uuid), dictionary=False)
-    if count == 0:
+    count = r.get(f'{REDIS_ICON_PREFIX}{jia_user_id}{jia_isu_uuid}')
+    if count is None:
         raise NotFound("not found: isu")
     # ISUのグラフ情報を取得している
     res = generate_isu_graph_response(jia_isu_uuid, dt)
