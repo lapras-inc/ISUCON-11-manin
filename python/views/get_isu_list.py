@@ -24,10 +24,10 @@ from common import *
 from dc import *
 
 
-def _get_isu_list(cnxpool):
+def _get_isu_list(cnxpool, r):
 
     """ISUの一覧を取得"""
-    jia_user_id = get_user_id_from_session(cnxpool)
+    jia_user_id = get_user_id_from_session(r)
 
     query = """
         SELECT * FROM `isu` WHERE `jia_user_id` = %s ORDER BY `id` DESC
