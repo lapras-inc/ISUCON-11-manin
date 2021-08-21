@@ -280,6 +280,7 @@ def truncate_datetime(dt: datetime) -> datetime:
     return datetime(dt.year, dt.month, dt.day, dt.hour, tzinfo=dt.tzinfo)
 
 
+# TODO おっそい
 def generate_isu_graph_response(jia_isu_uuid: str, graph_date: datetime) -> list[GraphResponse]:
     """グラフのデータ点を一日分生成"""
     data_points = []
@@ -365,6 +366,8 @@ def generate_isu_graph_response(jia_isu_uuid: str, graph_date: datetime) -> list
     return response_list
 
 
+# TODO ちょっと遅い
+# order by timestampが遅い
 @app.route("/api/condition/<jia_isu_uuid>", methods=["GET"])
 def get_isu_confitions(jia_isu_uuid):
     """ISUのコンディションを取得"""

@@ -42,6 +42,30 @@ def calculate_condition_level(condition: str) -> CONDITION_LEVEL:
 
     return condition_level
 
+def warn_count_to_condition_level(warn_count: int) -> CONDITION_LEVEL:
+
+    if warn_count == 0:
+        condition_level = CONDITION_LEVEL.INFO
+    elif warn_count in (1, 2):
+        condition_level = CONDITION_LEVEL.WARNING
+    elif warn_count == 3:
+        condition_level = CONDITION_LEVEL.CRITICAL
+    else:
+        raise Exception("unexpected warn count")
+
+    return condition_level
+
+def level_to_warn_count_str_list(level_set: set):
+    warn_count_set = []
+    if CONDITION_LEVEL.INFO in level_set:
+        warn_count_set.append('0')
+    if CONDITION_LEVEL.WARNING in level_set:
+        warn_count_set.append('1')
+        warn_count_set.append('2')
+    if CONDITION_LEVEL.CRITICAL in level_set:
+        warn_count_set.append('3')
+    return warn_count_set
+
 
 def get_user_id_from_session(cnxpool):
     jia_user_id = session.get("jia_user_id")
@@ -98,50 +122,65 @@ def get_isu_conditions_from_db(
     isu_name: str,
 ) -> list[GetIsuConditionResponse]:
     """ISUのコンディションをDBから取得"""
+
+    # (0,3)
+    warn_count_list = level_to_warn_count_str_list(condition_level)
+    if not warn_count_list:
+        return []
+    # TODO desc indexの話
     if start_time is None:
         query = """
             SELECT *
             FROM `isu_condition`
             WHERE `jia_isu_uuid` = %s AND `timestamp` < %s
-            ORDER BY `timestamp` DESC
-            """
-        conditions = [IsuCondition(**row) for row in select_all(cnxpool, query, (jia_isu_uuid, end_time))]
+            AND warn_count in ({warn_count})
+            ORDER BY `timestamp` DESC LIMIT %s
+            """.format(warn_count=','.join(warn_count_list))
+        conditions = [
+            IsuCondition(**row)
+            for row in select_all(cnxpool, query, (
+                jia_isu_uuid,
+                end_time,
+                limit
+            ))
+        ]
     else:
         query = """
             SELECT *
             FROM `isu_condition`
             WHERE `jia_isu_uuid` = %s AND `timestamp` < %s AND %s <= `timestamp`
-            ORDER BY `timestamp` DESC
-            """
-        conditions = [IsuCondition(**row) for row in select_all(cnxpool, query, (jia_isu_uuid, end_time, start_time))]
+            AND warn_count in ({warn_count})
+            ORDER BY `timestamp` DESC LIMIT %s
+            """.format(warn_count=','.join(warn_count_list))
+        conditions = [
+            IsuCondition(**row)
+            for row in select_all(cnxpool, query, (
+                jia_isu_uuid,
+                end_time,
+                start_time,
+                limit
+            ))
+        ]
 
     condition_response = []
     for c in conditions:
         try:
-            # 状態とレベルの変換
-            c_level = calculate_condition_level(c.condition)
+            c_level = warn_count_to_condition_level(c.warn_count)
         except:
             continue
-        # 検索条件に外うとうするかの比較
-        # TODO ciriticalとかはエラー数できまってるのでSQLで処理できそう
-        if c_level.value in condition_level:
-            condition_response.append(
-                GetIsuConditionResponse(
-                    jia_isu_uuid=jia_isu_uuid,
-                    isu_name=isu_name,
-                    timestamp=int(c.timestamp.timestamp()),
-                    is_sitting=c.is_sitting,
-                    condition=c.condition,
-                    condition_level=c_level,
-                    message=c.message,
-                )
+        condition_response.append(
+            GetIsuConditionResponse(
+                jia_isu_uuid=jia_isu_uuid,
+                isu_name=isu_name,
+                timestamp=int(c.timestamp.timestamp()),
+                is_sitting=c.is_sitting,
+                condition=c.condition,
+                condition_level=c_level,
+                message=c.message,
             )
-    #TODO 上のTODO を処理できるとSQLのLimitで処理できるようになる
-    if len(condition_response) > limit:
-        condition_response = condition_response[:limit]
+        )
 
     return condition_response
-
 
 
 

@@ -65,8 +65,9 @@ def _post_isu_condition(app, cnxpool, jia_isu_uuid):
 
             query = """
                 INSERT
-                INTO `isu_condition` (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)
-                VALUES (%s, %s, %s, %s, %s)
+                INTO `isu_condition`
+                (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `warn_count`, `message`)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """
             cur.execute(
                 query,
@@ -75,6 +76,7 @@ def _post_isu_condition(app, cnxpool, jia_isu_uuid):
                     datetime.fromtimestamp(cond.timestamp, tz=TZ),
                     cond.is_sitting,
                     cond.condition,
+                    cond.warn_count,
                     cond.message,
                 ),
             )

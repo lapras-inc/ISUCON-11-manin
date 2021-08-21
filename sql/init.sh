@@ -1,6 +1,7 @@
 #!/bin/bash
 set -xu -o pipefail
 
+# TODO 三大構成のときは注意
 CURRENT_DIR=$(cd $(dirname $0);pwd)
 export MYSQL_HOST=${MYSQL_HOST:-127.0.0.1}
 export MYSQL_PORT=${MYSQL_PORT:-3306}

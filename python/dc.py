@@ -25,6 +25,7 @@ class IsuCondition:
     is_sitting: bool
     condition: str
     message: str
+    warn_count: int
     created_at: datetime
 
     def __post_init__(self):
@@ -106,3 +107,7 @@ class PostIsuConditionRequest:
     condition: str
     message: str
     timestamp: int
+
+    @property
+    def warn_count(self):
+        return self.condition.count("=true")
