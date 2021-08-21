@@ -1,3 +1,5 @@
+import threading
+
 from common import *
 from dc import *
 
@@ -5,6 +7,29 @@ from dc import *
 BUFFER = []
 BUFFER_LIMIT = 100
 DROP_PROBABILITY = 0.9
+
+
+# スレッド処理クラス
+class InsertThread(threading.Thread):
+
+    def __init__(self, param_list, cnxpool):
+        super().__init__()
+        self.daemon = True
+        self.param_list = param_list
+        self.cnxpool = cnxpool
+
+    def run(self):
+        cnx = self.cnxpool.connect()
+        cnx.start_transaction()
+        cur = cnx.cursor(dictionary=True)
+        query = """
+            INSERT
+            INTO `isu_condition`
+            (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `warn_count`, `message`)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        cur.executemany(query, self.param_list)
+        cnx.commit()
 
 
 def _post_isu_condition(app, cnxpool, jia_isu_uuid):
@@ -72,13 +97,8 @@ def _post_isu_condition(app, cnxpool, jia_isu_uuid):
             # )
 
         if len(BUFFER) > 100:
-            query = """
-                INSERT
-                INTO `isu_condition`
-                (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `warn_count`, `message`)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            cur.executemany(query, BUFFER)
+            thread = InsertThread(BUFFER, cnxpool)
+            thread.start()
             BUFFER = []
         cnx.commit()
     except:
