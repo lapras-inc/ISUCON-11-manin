@@ -99,6 +99,10 @@ def _get_trend(cnxpool, redis_connection=None):
             current_character = character
 
         if character != current_character:
+            current_data['info'].sort(key=lambda c: c.timestamp, reverse=True)
+            current_data['warning'].sort(key=lambda c: c.timestamp, reverse=True)
+            current_data['critical'].sort(key=lambda c: c.timestamp, reverse=True)
+
             res.append(
                 TrendResponse(
                     character=current_character,
@@ -128,10 +132,10 @@ def _get_trend(cnxpool, redis_connection=None):
 
             current_data[condition_level].append(trend_condition)
 
-        # character_info_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
-        # character_warning_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
-        # character_critical_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
     # last buffer
+    current_data['info'].sort(key=lambda c: c.timestamp, reverse=True)
+    current_data['warning'].sort(key=lambda c: c.timestamp, reverse=True)
+    current_data['critical'].sort(key=lambda c: c.timestamp, reverse=True)
     res.append(
         TrendResponse(
             character=current_character,
