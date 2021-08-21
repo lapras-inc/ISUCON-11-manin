@@ -21,9 +21,10 @@ def select_all(cnxpool, query, *args, dictionary=True):
     finally:
         cnx.close()
 
-# 1行だけ期待しているが全件とってる
-def select_row(cnxpool, *args, **kwargs):
-    rows = select_all(cnxpool, *args, **kwargs)
+
+def select_row(cnxpool, query, *args, **kwargs):
+    limited_query = query + "LIMIT 1"
+    rows = select_all(cnxpool, limited_query, *args, **kwargs)
     return rows[0] if len(rows) > 0 else None
 
 
