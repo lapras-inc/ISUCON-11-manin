@@ -30,20 +30,56 @@ def _get_isu_list(cnxpool):
     jia_user_id = get_user_id_from_session(cnxpool)
 
     query = """
-        SELECT * FROM `isu` WHERE `jia_user_id` = %s ORDER BY `id` DESC
+        with latest_condition as (
+            SELECT *
+            FROM isu_condition
+            where (`jia_isu_uuid`, timestamp) in
+                  (select `jia_isu_uuid`, max(timestamp) from `isu_condition` group by `jia_isu_uuid`)
+        )
+        SELECT `isu`.id,
+               `isu`.jia_isu_uuid,
+               `isu`.name,
+               `isu`.`character`,
+               `isu`.`image`
+               `isu`.`created_at`,
+               `isu`.`updated_at`,
+               `isu`.`image`
+               ic.id as ic_id,
+               ic.timestamp,
+               ic.is_sitting,
+               ic.`condition`,
+               ic.warn_count,
+               ic.message
+        FROM `isu`
+                 left outer join latest_condition ic on isu.jia_isu_uuid = ic.jia_isu_uuid
+        WHERE `jia_user_id` = %s
+        ORDER BY `isu`.`id` DESC
     """
-    isu_list = [Isu(**row) for row in select_all(cnxpool, query, (jia_user_id,))]
+    isu_list = [Isu(**{
+        'id': row['id'],
+        'jia_isu_uuid': row['jia_isu_uuid'],
+        'name': row['name'],
+        'image': row['image'],
+        'character': row['character'],
+        'jia_user_id': row['jia_user_id'],
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at']
+    }) for row in select_all(cnxpool, query, (jia_user_id,))]
 
     response_list = []
     for isu in isu_list:
         # 状態情報があるか
-        found_last_condition = True
-        # TODO N 1
-        query = "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = %s ORDER BY `timestamp` DESC LIMIT 1"
-        row = select_row(cnxpool, query, (isu.jia_isu_uuid,))
-        if row is None:
-            found_last_condition = False
-        last_condition = IsuCondition(**row) if found_last_condition else None
+        found_last_condition = row['ic_id'] is None
+        last_condition = IsuCondition(**{
+            'id': row['ic_id'],
+            'jia_isu_uuid': row['jia_isu_uuid'],
+            'timestamp': row['timestamp'],
+            'is_sitting': row['is_sitting'],
+            'condition': row['condition'],
+            'message': row['message'],
+            'warn_count': row['warn_count'],
+            'created_at': row['created_at'],
+        }) if found_last_condition else None
 
         formatted_condition = None
         if found_last_condition:
