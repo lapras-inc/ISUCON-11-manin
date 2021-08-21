@@ -43,7 +43,7 @@ def _get_isu_list(cnxpool):
                `isu`.`image`
                `isu`.`created_at`,
                `isu`.`updated_at`,
-               `isu`.`image`
+               `isu`.`image`,
                ic.id as ic_id,
                ic.timestamp,
                ic.is_sitting,
@@ -55,19 +55,19 @@ def _get_isu_list(cnxpool):
         WHERE `jia_user_id` = %s
         ORDER BY `isu`.`id` DESC
     """
-    isu_list = [Isu(**{
-        'id': row['id'],
-        'jia_isu_uuid': row['jia_isu_uuid'],
-        'name': row['name'],
-        'image': row['image'],
-        'character': row['character'],
-        'jia_user_id': row['jia_user_id'],
-        'created_at': row['created_at'],
-        'updated_at': row['updated_at']
-    }) for row in select_all(cnxpool, query, (jia_user_id,))]
 
     response_list = []
-    for isu in isu_list:
+    for row in select_all(cnxpool, query, (jia_user_id,)):
+        isu = Isu(**{
+            'id': row['id'],
+            'jia_isu_uuid': row['jia_isu_uuid'],
+            'name': row['name'],
+            'image': row['image'],
+            'character': row['character'],
+            'jia_user_id': row['jia_user_id'],
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at']
+        })
         # 状態情報があるか
         found_last_condition = row['ic_id'] is None
         last_condition = IsuCondition(**{

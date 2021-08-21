@@ -8,7 +8,7 @@ from constants import *
 @dataclass
 class Isu:
     id: int
-    jia_isu_uuid: int
+    jia_isu_uuid: str
     name: str
     image: bytes
     character: str
