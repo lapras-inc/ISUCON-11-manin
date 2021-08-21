@@ -7,7 +7,7 @@ from dc import *
 
 CACHE = None
 
-TIMEOUT = 5
+TIMEOUT = 10
 
 
 def _get_trend(cnxpool, redis_connection=None):
@@ -58,10 +58,6 @@ def _get_trend(cnxpool, redis_connection=None):
               i.id
               ORDER BY ic.timestamp desc
           ) as isu_id_list,
-          group_concat(
-              ic.jia_isu_uuid
-              ORDER BY ic.timestamp desc
-          ) as jia_isu_uuid_list,
           group_concat(
               ic.timestamp
               ORDER BY ic.timestamp desc
