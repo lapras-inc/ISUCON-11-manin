@@ -27,7 +27,7 @@ def set_isu_to_redis(cnxpool, r):
     query = """
             SELECT jia_isu_uuid FROM `isu`
         """
-    for row in select_all(cnxpool, query):
+    for row in select_all(cnxpool, query, ()):
         # redisにisuを登録
         r.set(REDIS_ISU_PREFIX + row['jia_isu_uuid'], 1)
 
