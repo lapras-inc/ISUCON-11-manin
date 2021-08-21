@@ -31,8 +31,6 @@ def _post_isu_condition(app, cnxpool, jia_isu_uuid):
 
     cnx = cnxpool.connect()
     try:
-        # トランザクション
-        cnx.start_transaction()
         cur = cnx.cursor(dictionary=True)
 
         # ISUの存在チェック
@@ -80,7 +78,6 @@ def _post_isu_condition(app, cnxpool, jia_isu_uuid):
             """
             cur.executemany(query, BUFFER)
             BUFFER = []
-        cnx.commit()
     except:
         cnx.rollback()
         raise
