@@ -4,7 +4,7 @@ from dc import *
 
 BUFFER = []
 BUFFER_LIMIT = 100
-DROP_PROBABILITY = 0.5
+DROP_PROBABILITY = 0.9
 
 
 def _post_isu_condition(app, cnxpool, jia_isu_uuid):
