@@ -39,6 +39,9 @@ def _post_initialize(cnxpool, r):
         raise BadRequest("bad request body")
 
     call(APP_ROUTE + "sql/init.sh")
+
+    # redisを初期化
+    r.flushall()
     set_isu_to_redis(cnxpool, r)
 
     cnx = cnxpool.connect()
