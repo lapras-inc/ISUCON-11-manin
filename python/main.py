@@ -1,3 +1,4 @@
+import pickle
 import urllib.request
 from flask.json import JSONEncoder
 import mysql.connector
@@ -255,6 +256,10 @@ def get_isu_graph(jia_isu_uuid):
     """ISUのコンディショングラフ描画のための情報を取得"""
     jia_user_id = get_user_id_from_session(r)
 
+    data = r.get(f'{REDIS_GRAPH_PREFIX}-{jia_isu_uuid}')
+    if data:
+        return pickle.loads(data)
+
     dt = request.args.get("datetime")
     if dt is None:
         raise BadRequest("missing: datetime")
@@ -271,7 +276,11 @@ def get_isu_graph(jia_isu_uuid):
         raise NotFound("not found: isu")
     # ISUのグラフ情報を取得している
     res = generate_isu_graph_response(jia_isu_uuid, dt)
+
+    json_res = jsonify(res)
+    r.set(f'{REDIS_GRAPH_PREFIX}-{jia_isu_uuid}', pickle.dumps(json_res), ex=1)
     return jsonify(res)
+
 
 
 def truncate_datetime(dt: datetime) -> datetime:
@@ -372,6 +381,11 @@ def get_isu_confitions(jia_isu_uuid):
     """ISUのコンディションを取得"""
     jia_user_id = get_user_id_from_session(r)
 
+    data = r.get(f'{REDIS_CONDITION_PREFIX}-{jia_isu_uuid}')
+    if data:
+        return pickle.loads(data)
+
+
     try:
         end_time = datetime.fromtimestamp(int(request.args.get("end_time")), tz=TZ)
     except:
@@ -410,6 +424,8 @@ def get_isu_confitions(jia_isu_uuid):
         isu_name,
     )
 
+    json_res = jsonify(condition_response)
+    r.set(f'{REDIS_CONDITION_PREFIX}-{jia_isu_uuid}', pickle.dumps(json_res), ex=1)
     return jsonify(condition_response)
 
 
