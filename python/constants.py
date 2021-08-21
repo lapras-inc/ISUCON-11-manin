@@ -18,8 +18,8 @@ DEFAULT_JIA_SERVICE_URL = "http://localhost:5000"
 MYSQL_ERR_NUM_DUPLICATE_ENTRY = 1062
 
 REDIS_USER_PREFIX = "user-"
-
 REDIS_ISU_PREFIX = "isu-"
+REDIS_ICON_PREFIX = "icon-"
 
 class CONDITION_LEVEL(str, Enum):
     INFO = "info"
