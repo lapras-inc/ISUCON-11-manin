@@ -1,150 +1,15 @@
-from os import getenv
-from subprocess import call
-from dataclasses import dataclass
-import json
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 import urllib.request
-from random import random
-from enum import Enum
-from flask import Flask, request, session, send_file, jsonify, abort, make_response
 from flask.json import JSONEncoder
-from werkzeug.exceptions import (
-    Forbidden,
-    HTTPException,
-    BadRequest,
-    Unauthorized,
-    NotFound,
-    InternalServerError,
-)
 import mysql.connector
 from sqlalchemy.pool import QueuePool
 import jwt
 
-
-TZ = ZoneInfo("Asia/Tokyo")
-CONDITION_LIMIT = 20
-APP_ROUTE = getenv("APP_ROUTE", "../")
-FRONTEND_CONTENTS_PATH = APP_ROUTE + "public"
-JIA_JWT_SIGNING_KEY_PATH = APP_ROUTE + "ec256-public.pem"
-DEFAULT_ICON_FILE_PATH = APP_ROUTE + "NoImage.jpg"
-DEFAULT_JIA_SERVICE_URL = "http://localhost:5000"
-MYSQL_ERR_NUM_DUPLICATE_ENTRY = 1062
-
-
-class CONDITION_LEVEL(str, Enum):
-    INFO = "info"
-    WARNING = "warning"
-    CRITICAL = "critical"
-
-
-class SCORE_CONDITION_LEVEL(int, Enum):
-    INFO = 3
-    WARNING = 2
-    CRITICAL = 1
-
-
-@dataclass
-class Isu:
-    id: int
-    jia_isu_uuid: int
-    name: str
-    image: bytes
-    character: str
-    jia_user_id: str
-    created_at: datetime
-    updated_at: datetime
-
-
-@dataclass
-class IsuCondition:
-    id: int
-    jia_isu_uuid: str
-    timestamp: datetime
-    is_sitting: bool
-    condition: str
-    message: str
-    created_at: datetime
-
-    def __post_init__(self):
-        if type(self.is_sitting) is int:
-            self.is_sitting = bool(self.is_sitting)
-        if type(self.timestamp) is datetime:
-            self.timestamp = self.timestamp.astimezone(TZ)
-        if type(self.created_at) is datetime:
-            self.created_at = self.created_at.astimezone(TZ)
-
-
-@dataclass
-class ConditionsPercentage:
-    sitting: int
-    is_broken: int
-    is_dirty: int
-    is_overweight: int
-
-
-@dataclass
-class GraphDataPoint:
-    score: int
-    percentage: ConditionsPercentage
-
-
-@dataclass
-class GraphDataPointWithInfo:
-    jia_isu_uuid: str
-    start_at: datetime
-    data: GraphDataPoint
-    condition_timestamps: list[int]
-
-
-@dataclass
-class GraphResponse:
-    start_at: int
-    end_at: int
-    data: GraphDataPoint
-    condition_timestamps: list[int]
-
-
-@dataclass
-class GetIsuConditionResponse:
-    jia_isu_uuid: str
-    isu_name: str
-    timestamp: int
-    is_sitting: bool
-    condition: str
-    condition_level: str
-    message: str
-
-
-@dataclass
-class GetIsuListResponse:
-    id: int
-    jia_isu_uuid: str
-    name: str
-    character: str
-    latest_isu_condition: GetIsuConditionResponse
-
-
-@dataclass
-class TrendCondition:
-    isu_id: int
-    timestamp: int
-
-
-@dataclass
-class TrendResponse:
-    character: str
-    info: list[TrendCondition]
-    warning: list[TrendCondition]
-    critical: list[TrendCondition]
-
-
-@dataclass
-class PostIsuConditionRequest:
-    is_sitting: bool
-    condition: str
-    message: str
-    timestamp: int
+from common import *
+from dc import *
+from views.post_initialize import _post_initialize
+from views.get_isu_list import _get_isu_list
+from views.post_isu_condition import _post_isu_condition
+from views.get_trend import _get_trend
 
 
 class CustomJSONEncoder(JSONEncoder):
@@ -180,21 +45,6 @@ mysql_connection_env = {
 # コネクションプール サイズ10
 cnxpool = QueuePool(lambda: mysql.connector.connect(**mysql_connection_env), pool_size=10)
 
-# 汎用クエリ
-# fetch allは少し気になる
-def select_all(query, *args, dictionary=True):
-    cnx = cnxpool.connect()
-    try:
-        cur = cnx.cursor(dictionary=dictionary)
-        cur.execute(query, *args)
-        return cur.fetchall()
-    finally:
-        cnx.close()
-
-# 1行だけ期待しているが全件とってる
-def select_row(*args, **kwargs):
-    rows = select_all(*args, **kwargs)
-    return rows[0] if len(rows) > 0 else None
 
 
 with open(JIA_JWT_SIGNING_KEY_PATH, "rb") as f:
@@ -214,7 +64,7 @@ def get_user_id_from_session():
     # セッションがないときにクエリ飛んでる
     # sessionにjia_user_idが入ってるならuserからそれがあるかをみてあれば認可済
     query = "SELECT COUNT(*) FROM `user` WHERE `jia_user_id` = %s"
-    (count,) = select_row(query, (jia_user_id,), dictionary=False)
+    (count,) = select_row(cnxpool, query, (jia_user_id,), dictionary=False)
 
     if count == 0:
         raise Unauthorized("you are not signed in")
@@ -224,37 +74,17 @@ def get_user_id_from_session():
 
 def get_jia_service_url() -> str:
     """
-    ????
     JIAのサーバ登録なので多分キャッシュにできるかも
     """
     # TODO ほぼ普遍なので一回取ってキャッシュで良さそう
     query = "SELECT * FROM `isu_association_config` WHERE `name` = %s"
-    config = select_row(query, ("jia_service_url",))
+    config = select_row(cnxpool, query, ("jia_service_url",))
     return config["url"] if config is not None else DEFAULT_JIA_SERVICE_URL
 
 
 @app.route("/initialize", methods=["POST"])
 def post_initialize():
-    """
-    ベンチマーク最初に叩かれるAPI
-    """
-    if "jia_service_url" not in request.json:
-        raise BadRequest("bad request body")
-
-    call(APP_ROUTE + "sql/init.sh")
-
-    cnx = cnxpool.connect()
-    try:
-        cur = cnx.cursor()
-        query = """
-            INSERT INTO
-            `isu_association_config` (`name`, `url`) VALUES (%s, %s) ON DUPLICATE KEY UPDATE `url` = VALUES(`url`)
-        """
-        cur.execute(query, ("jia_service_url", request.json["jia_service_url"]))
-        cnx.commit()
-    finally:
-        cnx.close()
-
+    _post_initialize(cnxpool)
     return {"language": "python"}
 
 
@@ -309,48 +139,7 @@ def get_me():
 
 @app.route("/api/isu", methods=["GET"])
 def get_isu_list():
-    """ISUの一覧を取得"""
-    jia_user_id = get_user_id_from_session()
-
-    query = """
-        SELECT * FROM `isu` WHERE `jia_user_id` = %s ORDER BY `id` DESC
-    """
-    isu_list = [Isu(**row) for row in select_all(query, (jia_user_id,))]
-
-    response_list = []
-    for isu in isu_list:
-        # 状態情報があるか
-        found_last_condition = True
-        # TODO N 1
-        query = "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = %s ORDER BY `timestamp` DESC LIMIT 1"
-        row = select_row(query, (isu.jia_isu_uuid,))
-        if row is None:
-            found_last_condition = False
-        last_condition = IsuCondition(**row) if found_last_condition else None
-
-        formatted_condition = None
-        if found_last_condition:
-            formatted_condition = GetIsuConditionResponse(
-                jia_isu_uuid=last_condition.jia_isu_uuid,
-                isu_name=isu.name,
-                timestamp=int(last_condition.timestamp.timestamp()),
-                is_sitting=last_condition.is_sitting,
-                condition=last_condition.condition,
-                condition_level=calculate_condition_level(last_condition.condition),
-                message=last_condition.message,
-            )
-
-        response_list.append(
-            GetIsuListResponse(
-                id=isu.id,
-                jia_isu_uuid=isu.jia_isu_uuid,
-                name=isu.name,
-                character=isu.character,
-                latest_isu_condition=formatted_condition,
-            )
-        )
-
-    return jsonify(response_list)
+    return _get_isu_list(cnxpool)
 
 
 @app.route("/api/isu", methods=["POST"])
@@ -441,7 +230,7 @@ def get_isu_id(jia_isu_uuid):
     # uuidが一意だったらuser_idはクエリにはいらないのでこれ自体省けるが無認可でAPIを叩くテストが混ざってると死ぬ
     jia_user_id = get_user_id_from_session()
     query = "SELECT * FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
-    res = select_row(query, (jia_user_id, jia_isu_uuid))
+    res = select_row(cnxpool, query, (jia_user_id, jia_isu_uuid))
     if res is None:
         raise NotFound("not found: isu")
 
@@ -455,7 +244,7 @@ def get_isu_icon(jia_isu_uuid):
     jia_user_id = get_user_id_from_session()
 
     query = "SELECT `image` FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
-    res = select_row(query, (jia_user_id, jia_isu_uuid))
+    res = select_row(cnxpool, query, (jia_user_id, jia_isu_uuid))
     if res is None:
         raise NotFound("not found: isu")
 
@@ -478,7 +267,7 @@ def get_isu_graph(jia_isu_uuid):
 
     # ISUの存在確認をしている
     query = "SELECT COUNT(*) FROM `isu` WHERE `jia_user_id` = %s AND `jia_isu_uuid` = %s"
-    (count,) = select_row(query, (jia_user_id, jia_isu_uuid), dictionary=False)
+    (count,) = select_row(cnxpool, query, (jia_user_id, jia_isu_uuid), dictionary=False)
     if count == 0:
         raise NotFound("not found: isu")
     # ISUのグラフ情報を取得している
@@ -499,7 +288,7 @@ def generate_isu_graph_response(jia_isu_uuid: str, graph_date: datetime) -> list
     start_time_in_this_hour = None
 
     query = "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = %s ORDER BY `timestamp` ASC"
-    rows = select_all(query, (jia_isu_uuid,))
+    rows = select_all(cnxpool, query, (jia_isu_uuid,))
     for row in rows:
         condition = IsuCondition(**row)
         # condition情報の時刻を時間単位に切り捨てる
@@ -576,49 +365,6 @@ def generate_isu_graph_response(jia_isu_uuid: str, graph_date: datetime) -> list
     return response_list
 
 
-def calculate_graph_data_point(isu_conditions: list[IsuCondition]) -> GraphDataPoint:
-    """複数のISUのコンディションからグラフの一つのデータ点を計算"""
-    conditions_count = {"is_broken": 0, "is_dirty": 0, "is_overweight": 0}
-    raw_score = 0
-    for condition in isu_conditions:
-        bad_conditions_count = 0
-        # no sql
-        if not is_valid_condition_format(condition.condition):
-            raise Exception("invalid condition format")
-
-        for cond_str in condition.condition.split(","):
-            key_value = cond_str.split("=")
-
-            condition_name = key_value[0]
-            if key_value[1] == "true":
-                conditions_count[condition_name] += 1
-                bad_conditions_count += 1
-
-        if bad_conditions_count >= 3:
-            raw_score += SCORE_CONDITION_LEVEL.CRITICAL
-        elif bad_conditions_count >= 1:
-            raw_score += SCORE_CONDITION_LEVEL.WARNING
-        else:
-            raw_score += SCORE_CONDITION_LEVEL.INFO
-
-    sitting_count = 0
-    for condition in isu_conditions:
-        if condition.is_sitting:
-            sitting_count += 1
-
-    isu_conditions_length = len(isu_conditions)
-
-    return GraphDataPoint(
-        score=int(raw_score * 100 / 3 / isu_conditions_length),
-        percentage=ConditionsPercentage(
-            sitting=int(sitting_count * 100 / isu_conditions_length),
-            is_broken=int(conditions_count["is_broken"] * 100 / isu_conditions_length),
-            is_overweight=int(conditions_count["is_overweight"] * 100 / isu_conditions_length),
-            is_dirty=int(conditions_count["is_dirty"] * 100 / isu_conditions_length),
-        ),
-    )
-
-
 @app.route("/api/condition/<jia_isu_uuid>", methods=["GET"])
 def get_isu_confitions(jia_isu_uuid):
     """ISUのコンディションを取得"""
@@ -645,7 +391,7 @@ def get_isu_confitions(jia_isu_uuid):
 
     # ISU名取得
     query = "SELECT name FROM `isu` WHERE `jia_isu_uuid` = %s AND `jia_user_id` = %s"
-    row = select_row(query, (jia_isu_uuid, jia_user_id))
+    row = select_row(cnxpool, query, (jia_isu_uuid, jia_user_id))
     if row is None:
         raise NotFound("not found: isu")
     isu_name = row["name"]
@@ -664,186 +410,14 @@ def get_isu_confitions(jia_isu_uuid):
     return jsonify(condition_response)
 
 
-def get_isu_conditions_from_db(
-    jia_isu_uuid: str,
-    end_time: datetime,
-    condition_level: set,
-    start_time: datetime,
-    limit: int,
-    isu_name: str,
-) -> list[GetIsuConditionResponse]:
-    """ISUのコンディションをDBから取得"""
-    if start_time is None:
-        query = """
-            SELECT *
-            FROM `isu_condition`
-            WHERE `jia_isu_uuid` = %s AND `timestamp` < %s
-            ORDER BY `timestamp` DESC
-            """
-        conditions = [IsuCondition(**row) for row in select_all(query, (jia_isu_uuid, end_time))]
-    else:
-        query = """
-            SELECT *
-            FROM `isu_condition`
-            WHERE `jia_isu_uuid` = %s AND `timestamp` < %s AND %s <= `timestamp`
-            ORDER BY `timestamp` DESC
-            """
-        conditions = [IsuCondition(**row) for row in select_all(query, (jia_isu_uuid, end_time, start_time))]
-
-    condition_response = []
-    for c in conditions:
-        try:
-            # 状態とレベルの変換
-            c_level = calculate_condition_level(c.condition)
-        except:
-            continue
-        # 検索条件に外うとうするかの比較
-        # TODO ciriticalとかはエラー数できまってるのでSQLで処理できそう
-        if c_level.value in condition_level:
-            condition_response.append(
-                GetIsuConditionResponse(
-                    jia_isu_uuid=jia_isu_uuid,
-                    isu_name=isu_name,
-                    timestamp=int(c.timestamp.timestamp()),
-                    is_sitting=c.is_sitting,
-                    condition=c.condition,
-                    condition_level=c_level,
-                    message=c.message,
-                )
-            )
-    #TODO 上のTODO を処理できるとSQLのLimitで処理できるようになる
-    if len(condition_response) > limit:
-        condition_response = condition_response[:limit]
-
-    return condition_response
-
-
 @app.route("/api/trend", methods=["GET"])
 def get_trend():
-    """ISUの性格毎の最新のコンディション情報"""
-
-    """
-    先にDBにあるキャラクター一覧を取って
-    キャラクターごとに
-    最新のコンディションを取得し、そのコンディションごとの椅子の数を求めている
-    
-    キャラクター: {
-        critical: [{isu_id, last_condition_timestamp}],
-        info: [],
-        warn: [],
-    }
-    
-    
-    """
-    # TODO 採点基準にあるか微妙なので切り捨てることもあり得るかもしれない
-    query = "SELECT `character` FROM `isu` GROUP BY `character`"
-    character_list = [row["character"] for row in select_all(query)]
-
-    res = []
-
-    for character in character_list:
-        query = "SELECT * FROM `isu` WHERE `character` = %s"
-        isu_list = [Isu(**row) for row in select_all(query, (character,))]
-
-        character_info_isu_conditions = []
-        character_warning_isu_conditions = []
-        character_critical_isu_conditions = []
-        for isu in isu_list:
-            query = "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = %s ORDER BY timestamp DESC"
-            conditions = [IsuCondition(**row) for row in select_all(query, (isu.jia_isu_uuid,))]
-
-            if len(conditions) > 0:
-                isu_last_condition = conditions[0]
-                condition_level = calculate_condition_level(isu_last_condition.condition)
-
-                trend_condition = TrendCondition(isu_id=isu.id, timestamp=int(isu_last_condition.timestamp.timestamp()))
-
-                if condition_level == "info":
-                    character_info_isu_conditions.append(trend_condition)
-                elif condition_level == "warning":
-                    character_warning_isu_conditions.append(trend_condition)
-                elif condition_level == "critical":
-                    character_critical_isu_conditions.append(trend_condition)
-
-        character_info_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
-        character_warning_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
-        character_critical_isu_conditions.sort(key=lambda c: c.timestamp, reverse=True)
-
-        res.append(
-            TrendResponse(
-                character=character,
-                info=character_info_isu_conditions,
-                warning=character_warning_isu_conditions,
-                critical=character_critical_isu_conditions,
-            )
-        )
-
-    return jsonify(res)
+    return _get_trend(cnxpool)
 
 
 @app.route("/api/condition/<jia_isu_uuid>", methods=["POST"])
 def post_isu_condition(jia_isu_uuid):
-    """
-    JIAから翔んでくるISUからのコンディションを受け取る
-
-    処理自体は思いように感じないのでとても多いのかもしれない。
-    キャッシュなどでいい感じにバッファしてBulkでInsertさせたい
-
-    加点要素
-    """
-    # TODO: 一定割合リクエストを落としてしのぐようにしたが、本来は全量さばけるようにすべき
-    # 1/10になってる！
-    drop_probability = 0.9
-    if random() <= drop_probability:
-        app.logger.warning("drop post isu condition request")
-        return "", 202
-    try:
-        req = [PostIsuConditionRequest(**row) for row in request.json]
-    except:
-        raise BadRequest("bad request body")
-
-    cnx = cnxpool.connect()
-    try:
-        # トランザクション
-        cnx.start_transaction()
-        cur = cnx.cursor(dictionary=True)
-
-        # ISUの存在チェック
-        query = "SELECT COUNT(*) AS cnt FROM `isu` WHERE `jia_isu_uuid` = %s"
-        cur.execute(query, (jia_isu_uuid,))
-        count = cur.fetchone()["cnt"]
-        if count == 0:
-            raise NotFound("not found: isu")
-
-        for cond in req:
-            # no sql
-            if not is_valid_condition_format(cond.condition):
-                raise BadRequest("bad request body")
-
-            query = """
-                INSERT
-                INTO `isu_condition` (`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)
-                VALUES (%s, %s, %s, %s, %s)
-                """
-            cur.execute(
-                query,
-                (
-                    jia_isu_uuid,
-                    datetime.fromtimestamp(cond.timestamp, tz=TZ),
-                    cond.is_sitting,
-                    cond.condition,
-                    cond.message,
-                ),
-            )
-
-        cnx.commit()
-    except:
-        cnx.rollback()
-        raise
-    finally:
-        cnx.close()
-
-    return "", 202
+    return _post_isu_condition(app, cnxpool, jia_isu_uuid)
 
 
 def get_index(**kwargs):
@@ -855,49 +429,6 @@ app.add_url_rule("/isu/<jia_isu_uuid>", view_func=get_index)
 app.add_url_rule("/isu/<jia_isu_uuid>/condition", view_func=get_index)
 app.add_url_rule("/isu/<jia_isu_uuid>/graph", view_func=get_index)
 app.add_url_rule("/register", view_func=get_index)
-
-
-def calculate_condition_level(condition: str) -> CONDITION_LEVEL:
-    """ISUのコンディションの文字列からコンディションレベルを計算"""
-    warn_count = condition.count("=true")
-
-    if warn_count == 0:
-        condition_level = CONDITION_LEVEL.INFO
-    elif warn_count in (1, 2):
-        condition_level = CONDITION_LEVEL.WARNING
-    elif warn_count == 3:
-        condition_level = CONDITION_LEVEL.CRITICAL
-    else:
-        raise Exception("unexpected warn count")
-
-    return condition_level
-
-
-def is_valid_condition_format(condition_str: str) -> bool:
-    """ISUのコンディションの文字列がcsv形式になっているか検証"""
-    keys = ["is_dirty=", "is_overweight=", "is_broken="]
-    value_true = "true"
-    value_false = "false"
-
-    idx_cond_str = 0
-    for idx_keys, key in enumerate(keys):
-        if not condition_str[idx_cond_str:].startswith(key):
-            return False
-        idx_cond_str += len(key)
-
-        if condition_str[idx_cond_str:].startswith(value_true):
-            idx_cond_str += len(value_true)
-        elif condition_str[idx_cond_str:].startswith(value_false):
-            idx_cond_str += len(value_false)
-        else:
-            return False
-
-        if idx_keys < (len(keys) - 1):
-            if condition_str[idx_cond_str] != ",":
-                return False
-            idx_cond_str += 1
-
-    return idx_cond_str == len(condition_str)
 
 
 if __name__ == "__main__":
