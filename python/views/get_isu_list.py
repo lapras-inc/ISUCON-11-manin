@@ -37,6 +37,7 @@ def _get_isu_list(cnxpool):
                   (select `jia_isu_uuid`, max(timestamp) from `isu_condition` group by `jia_isu_uuid`)
         )
         SELECT `isu`.id,
+                `isu`.jia_user_id,
                `isu`.jia_isu_uuid,
                `isu`.name,
                `isu`.`character`,
